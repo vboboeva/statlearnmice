@@ -35,7 +35,7 @@ def make_pseudopop(seq_types, mouse_ids, sessions_by_id, data):
 				elif which_zscore == 'across_trials':
 					data_single_sess = zscore(data_single_sess, axis=0)  # z-score across neurons
 				elif which_zscore == 'across_time':
-					data_single_sess = zscore(data_single_sess, axis=1)
+					data_single_sess = zscore(data_single_sess, axis=2)
 
 				data_single_sess[np.isnan(data_single_sess)] = 0.000
 				data_single_sess_avg_across_trials = np.nanmean(data_single_sess, axis=0)
