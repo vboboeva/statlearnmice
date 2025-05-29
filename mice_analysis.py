@@ -8,7 +8,10 @@ from collections import defaultdict
 import scipy
 from scipy.stats import zscore
 from mpl_toolkits.mplot3d import Axes3D  # Required for 3D projection
-
+from scipy.signal import butter, filtfilt, welch
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
+from matplotlib import cm
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 def make_pseudopop(seq_types, mouse_ids, sessions_by_id, data):
 	# make a pseudopopulation of neural data by averaging across trials for each mouse and session
@@ -49,6 +52,20 @@ def make_pseudopop(seq_types, mouse_ids, sessions_by_id, data):
 
 	data_pseudopop = data_pseudopop_stacked.reshape(len(seq_types), data_pseudopop_stacked.shape[0] // 4, data_pseudopop_stacked.shape[1])
 	data_pseudopop = data_pseudopop.transpose(0,2,1) # putting N at the last dimension
+
+	threshold = 1e-10  # your threshold
+
+	# Step 1: Get max activity for each neuron across all trialtypes and timepoints
+	max_activity_per_neuron = data_pseudopop.max(axis=(0,1))  # shape: (N,)
+
+	# Step 2: Find neurons that exceed the threshold at least once
+	neurons_to_keep = max_activity_per_neuron > threshold  # boolean mask of shape (N,)
+
+	# Step 3: Filter the original array to keep only those neurons
+	filtered_activity = data_pseudopop[:,:,neurons_to_keep]
+
+	print(f"Kept {neurons_to_keep.sum()} out of {data_pseudopop.shape[2]} neurons")
+	# exit()
 	return data_pseudopop
 
 def plot_PCA(data_embedding, seq_types, key_to_pat_dict, n_components, frac_variance, figname):
@@ -73,11 +90,6 @@ def plot_PCA(data_embedding, seq_types, key_to_pat_dict, n_components, frac_vari
 		fig.suptitle(f'{_N} neurons across sessions')
 		fig.savefig(f'pca_components_ABCD_vs_ABBA_{figname}.png', bbox_inches='tight')	
 
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d.art3d import Line3DCollection
-from matplotlib import cm
 
 def plot_3D_PCA_trajectory(data_embedding, figname):
 	fig = plt.figure(figsize=(8, 6))
@@ -113,7 +125,74 @@ def plot_3D_PCA_trajectory(data_embedding, figname):
 	fig.savefig(f"PCA_3D_{figname}.svg", bbox_inches="tight", dpi=600)
 
 
+def bandstop_filter(data, lowcut=1, highcut=30, fs=100, order=4):
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+    b, a = butter(order, [low, high], btype='bandstop')
+    return filtfilt(b, a, data)
 
+
+def plot_bandpass(raw_signals, figname, n_components):
+	fig, ax = plt.subplots(3, 4, figsize=(20, 10))
+
+	colors = ['Blue', 'Purple', 'Green', 'Red']
+	filtered_signal = np.zeros_like(raw_signals)
+	
+	for i, raw_signal in enumerate(raw_signals):
+
+		ax[0,i].axvspan(0+25, 15+25, color='red', lw=0, alpha=0.1)
+		ax[0,i].axvspan(25+25, 40+25, color='red', lw=0, alpha=0.1)
+		ax[0,i].axvspan(50+25, 65+25, color='red', lw=0, alpha=0.1)
+		ax[0,i].axvspan(75+25, 90+25, color='red', lw=0, alpha=0.1)
+		ax[1,i].axvspan(0+25, 15+25, color='red', lw=0, alpha=0.1)
+		ax[1,i].axvspan(25+25, 40+25, color='red', lw=0, alpha=0.1)
+		ax[1,i].axvspan(50+25, 65+25, color='red', lw=0, alpha=0.1)
+		ax[1,i].axvspan(75+25, 90+25, color='red', lw=0, alpha=0.1)
+
+		for j in range(n_components):
+			signal = raw_signal[:, j]
+			# Function to apply bandpass filter and plot the results
+			# raw_signal: your ephys trace
+			filtered = bandstop_filter(signal, fs=100)
+			filtered_signal[i, :, j] = filtered
+			# Plot filtered signal
+			ax[0,i].plot(np.arange(len(signal)), signal, label='Raw Signal', color='gray', alpha=0.1)
+
+			ax[1,i].plot(np.arange(len(signal)), filtered, label='Filtered Signal (Theta Band)', ls='--', color='gray', alpha=0.1)
+
+			# PSD (Power Spectral Density)
+			frequencies, power = welch(signal, nperseg=64, fs=100)
+			ax[2,i].semilogy(frequencies, power, color='gray', alpha=0.1)
+
+		ax[0,i].set_title(f'Seq Type: {key_to_pat_dict[seq_types[i]]}', fontsize=16)
+		ax[0,i].set_xlabel('Time (s)')
+		ax[0,i].set_ylabel('Amplitude')
+		ax[0,i].set_xticks(np.arange(0, 126, 20))
+		ax[0,i].set_xticklabels(np.arange(0, 1260, 200))
+		
+		ax[1,i].set_title(f'Seq Type: {key_to_pat_dict[seq_types[i]]}', fontsize=16)
+		ax[1,i].set_xlabel('Time (s)')
+		ax[1,i].set_ylabel('Amplitude')
+		ax[1,i].set_xticks(np.arange(0, 126, 20))
+		ax[1,i].set_xticklabels(np.arange(0, 1260, 200))
+
+		ax[2,i].set_xlabel('Frequency (Hz)')
+		ax[2,i].set_ylabel('Power')
+		ax[2,i].axvspan(4, 12, color='gray', alpha=0.3)
+
+		ax[0,i].plot(np.arange(len(signal)), np.mean(raw_signal, axis=1), label='Raw Signal', color='black')
+		ax_inset = inset_axes(ax[0,i], width="40%", height="30%", loc=1)  # loc=1 is upper right
+		ax_inset.plot(np.arange(len(signal)), np.mean(raw_signal, axis=1), label='Raw Signal', color='black')
+		
+		ax[1,i].plot(np.arange(len(signal)), np.mean(filtered_signal[i], axis=1), label='Filtered Signal', color='black')
+		ax_inset = inset_axes(ax[1,i], width="40%", height="30%", loc=1)  # loc=1 is upper right
+		ax_inset.plot(np.arange(len(signal)), np.mean(filtered_signal[i], axis=1), label='Raw Signal', color='black')
+
+	fig.tight_layout()
+	fig.savefig(f"filter_{figname}.png", bbox_inches="tight", dpi=600)
+	
+	return filtered_signal
 
 if __name__ == "__main__":
 
@@ -157,6 +236,8 @@ if __name__ == "__main__":
 		data_pseudopop = make_pseudopop(seq_types, mouse_id, sessions_by_id, data)
 
 		_p, _t, _N = data_pseudopop.shape
+
+
 		print('number of seqtypes=',_p)
 		print('number of timepts=',_t)
 		print('number of neurons',_N)
@@ -180,9 +261,13 @@ if __name__ == "__main__":
 
 		data_embedding = data_embedding.reshape(_p, _t, n_components)
 
-		plot_PCA(data_embedding, seq_types, key_to_pat_dict, n_components, frac_variance, figname)
+		signal = data_embedding  # choose btw data_embedding and data_pseudopop and set n_components accordingly
+		filtered_signals = plot_bandpass(signal, figname, n_components = n_components)
 
-		plot_3D_PCA_trajectory(data_embedding, figname)
+		plot_PCA(filtered_signals, seq_types, key_to_pat_dict, n_components, frac_variance, figname)
+		plot_3D_PCA_trajectory(filtered_signals, figname)
+
+		# exit()
 
 		# exit()
 
