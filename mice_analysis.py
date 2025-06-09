@@ -12,6 +12,7 @@ from scipy.signal import butter, filtfilt, welch
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from matplotlib import cm
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from scipy.linalg import orthogonal_procrustes
 
 def replace_key_recursive(d, old_key, new_key):
 			if isinstance(d, dict):
@@ -280,6 +281,7 @@ def plot_bandpass(raw_signals, figname, freq_types, n_components, which_feature=
 	
 	return filtered_signal
 
+
 if __name__ == "__main__":
 
 	filename = join('full_patt_dict_ABCD_vs_ABBA.pkl')
@@ -318,10 +320,8 @@ if __name__ == "__main__":
 
 	x = np.append([[unique_mouse_id] for unique_mouse_id in unique_mouse_ids], unique_mouse_ids)
 
-	mouse_ids = [[x] for x in unique_mouse_ids] + [['DO79', 'D080', 'DO81']]
+	mouse_ids = [[x] for x in unique_mouse_ids] + [['DO79', 'D080', 'DO81', 'DO82']]
 	fignames = np.append(unique_mouse_ids, 'all_mice')
-	print(mouse_ids)
-	print(fignames)
 
 	for mouse_id, figname in zip(mouse_ids, fignames):
 		print(mouse_id)
@@ -364,4 +364,53 @@ if __name__ == "__main__":
 		plot_PCA(data_embedding, seq_types, key_to_pat_dict, n_components, frac_variance, figname, which_feature=which_feature)
 		plot_3D_PCA_trajectory(data_embedding, figname, which_feature=which_feature)
 
-		
+
+	# def plot_PCA_aligned():
+
+	fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+
+	reference_embedding = None
+	for idx, (mouse_id, figname) in enumerate(zip(mouse_ids, fignames)):
+		print(mouse_id)
+
+		if which_feature == 'seqtype':
+			data_pseudopop = make_pseudopop_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data)
+			labels = [key_to_pat_dict[st] for st in seq_types]
+		elif which_feature == 'frequency':
+			data_pseudopop = make_pseudopop_freqs(freq_types, mouse_id, sessions_by_id, data)
+			labels = freq_types
+		else:
+			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
+		data_pseudopop_mean = np.mean(data_pseudopop, axis=1)  # shape (_p, _N)
+
+		_p, _N = data_pseudopop_mean.shape
+		print(data_pseudopop_mean.shape)
+
+		pca = PCA(n_components=2)
+		_ = pca.fit_transform(data_pseudopop_mean)
+		data_embedding = pca.transform(data_pseudopop_mean)
+
+		# Align to reference
+		if idx == 0:
+			reference_embedding = data_embedding
+			aligned_embedding = data_embedding
+		else:
+			# Solve for best rotation
+			R, _ = orthogonal_procrustes(data_embedding, reference_embedding)
+			aligned_embedding = data_embedding @ R
+
+		print(np.shape(aligned_embedding))
+
+		colors = ['Blue', 'Purple', 'Green', 'Red']
+		for i in range(len(aligned_embedding)):
+			if figname == 'all_mice':
+				ax.scatter(aligned_embedding[i, 0], aligned_embedding[i, 1], s=4, color=colors[i], label=labels[i])
+			else:
+				ax.scatter(aligned_embedding[i, 0], aligned_embedding[i, 1], s=4, color=colors[i])
+
+			ax.text(aligned_embedding[i, 0], aligned_embedding[i, 1], str(figname), fontsize=10, color=colors[i])
+		ax.set_xlabel('PC1')
+		ax.set_ylabel('PC2')
+	ax.legend(loc='lower left', frameon=False, fontsize=12)
+	fig.tight_layout()
+	fig.savefig(f'pca_components_aligned_{which_feature}.svg', bbox_inches='tight')
