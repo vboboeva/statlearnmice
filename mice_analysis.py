@@ -76,6 +76,66 @@ def make_pseudopop_seqtype(seq_types, mouse_ids, sessions_by_id, data):
 	data_pseudopop = data_pseudopop.transpose(0,2,1) # putting N at the last dimension
 	return data_pseudopop
 
+def make_data_freqs(frequencies, mouse_ids, sessions_by_id, data):
+	# make a new dictionary
+	which_zscore = 'across_time'  # options: 'across_trials_and_time', 'across_trials', 'across_time'
+	data_new = {}
+	for mouse_id in mouse_ids:
+		# print(mouse_id)
+		for idx_sess, session in enumerate(sessions_by_id[mouse_id]):
+			# print(session)
+			key = f'{mouse_id}' + '_' + f'{session}'
+
+			data_new[key] = {'A0':[], 'B0':[], 'C0':[], 'D0':[]}
+
+			for seq_type in ['ABCD0']:#, 'ABBA0']:
+				# print(seq_type)
+				data_single_sess = data[key][seq_type] 	
+				num_trials, num_neurons, num_timepts = data_single_sess.shape
+
+				if seq_type == 'ABCD0':
+					data_new[key]['A0'] = data_single_sess[:, :, 25:40]
+					data_new[key]['B0'] = data_single_sess[:, :, 50:65]
+					data_new[key]['C0'] = data_single_sess[:, :, 75:90]
+					data_new[key]['D0'] = data_single_sess[:, :, 100:115]
+					
+				elif seq_type == 'ABBA0':
+					data_new[key]['A0'] = np.concatenate((data_new[key]['A0'], data_single_sess[:, :, 25:40]), axis=0)
+					data_new[key]['B0'] = np.concatenate((data_new[key]['B0'], data_single_sess[:, :, 50:65]), axis=0)
+					data_new[key]['B0'] = np.concatenate((data_new[key]['B0'], data_single_sess[:, :, 75:90]), axis=0)
+					data_new[key]['A0'] = np.concatenate((data_new[key]['A0'], data_single_sess[:, :, 100:115]), axis=0)
+				
+			data_new[key]['A0'] = np.array(data_new[key]['A0'])
+			data_new[key]['B0'] = np.array(data_new[key]['B0'])
+			data_new[key]['C0'] = np.array(data_new[key]['C0'])
+			data_new[key]['D0'] = np.array(data_new[key]['D0'])
+
+	for frequency in frequencies:
+		# print('frequency', frequency)
+		count=0
+		for mouse_id in mouse_ids:
+			# print('mouse id', mouse_id)
+			for session in sessions_by_id[mouse_id]:
+				# print('session', session)
+				key = f'{mouse_id}' + '_' + f'{session}'
+				data_single_sess = data_new[key][frequency]
+				# print('shape', np.shape(data_single_sess))
+				num_trials, num_neurons, num_timepts = data_single_sess.shape
+				if which_zscore == 'across_trials_and_time':
+					data_single_sess = data_single_sess.transpose(0, 2, 1)  # shape (num_trials, num_timepts, num_neurons)
+					data_single_sess = data_single_sess.reshape(-1, num_neurons)
+					data_single_sess = zscore(data_single_sess, axis=0)  # z-score across neurons
+					data_single_sess = data_single_sess.reshape(num_trials, num_timepts, num_neurons)
+					data_single_sess = data_single_sess.transpose(0, 2, 1)  # reshape (num_trials, num_neurons, num_timepts)
+				elif which_zscore == 'across_trials':
+					data_single_sess = zscore(data_single_sess, axis=0)
+				elif which_zscore == 'across_time':
+					data_single_sess = zscore(data_single_sess, axis=2)
+				
+				data_single_sess[np.isnan(data_single_sess)] = 0.0
+				data_new[key][frequency] = data_single_sess.transpose(0,2,1) # putting N at the last dimension
+
+	return data_new
 
 
 def make_pseudopop_freqs(frequencies, mouse_ids, sessions_by_id, data):
@@ -295,7 +355,7 @@ if __name__ == "__main__":
 
 	key_to_pat_dict= {'A-0': 'ABCD0', 'A-1': 'ABBA0', 'A-2': 'ABCD1', 'A-3':'ABBA1'}
 	
-	freq_types = ['A0', 'B0', 'C0', 'D0']  # frequency types for ABCD at lower pitch
+	frequencies = ['A0', 'B0', 'C0', 'D0']  # frequency types for ABCD at lower pitch
 
 	# extracts neural data for a single mouse for a single session for a single sequence pattern type (ABCD at lower pitch)
 
@@ -303,9 +363,6 @@ if __name__ == "__main__":
 
 	# Extract identities using a list comprehension
 	mouse_ids = [entry.split('_')[0] for entry in mouse_sess_entries]
-
-	# Optionally, get unique identities
-	unique_mouse_ids = sorted(set(mouse_ids))
 
 	# Dictionary to store sessions by identity
 	sessions_by_id = defaultdict(list)
@@ -318,10 +375,11 @@ if __name__ == "__main__":
 
 	n_components = 10
 
-	x = np.append([[unique_mouse_id] for unique_mouse_id in unique_mouse_ids], unique_mouse_ids)
-
-	mouse_ids = [[x] for x in unique_mouse_ids] + [['DO79', 'D080', 'DO81', 'DO82']]
+	unique_mouse_ids = sorted(set(mouse_ids))
+	mouse_ids = [[mouse_id] for mouse_id in unique_mouse_ids] + [unique_mouse_ids]
 	fignames = np.append(unique_mouse_ids, 'all_mice')
+
+	########################################################### PCA ACROSS TIME ############################################################
 
 	for mouse_id, figname in zip(mouse_ids, fignames):
 		print(mouse_id)
@@ -329,7 +387,7 @@ if __name__ == "__main__":
 		if which_feature == 'seqtype':
 			data_pseudopop = make_pseudopop_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data)
 		elif which_feature == 'frequency':
-			data_pseudopop = make_pseudopop_freqs(freq_types, mouse_id, sessions_by_id, data)
+			data_pseudopop = make_pseudopop_freqs(frequencies, mouse_id, sessions_by_id, data)
 		else:
 			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
 
@@ -359,13 +417,12 @@ if __name__ == "__main__":
 		data_embedding = data_embedding.reshape(_p, _t, n_components)
 
 		signal = data_embedding  # choose btw data_embedding and data_pseudopop and set n_components accordingly
-		filtered_signals = plot_bandpass(signal, figname, freq_types, n_components = n_components, which_feature=which_feature)		
+		filtered_signals = plot_bandpass(signal, figname, frequencies, n_components = n_components, which_feature=which_feature)		
 
 		plot_PCA(data_embedding, seq_types, key_to_pat_dict, n_components, frac_variance, figname, which_feature=which_feature)
 		plot_3D_PCA_trajectory(data_embedding, figname, which_feature=which_feature)
 
-
-	# def plot_PCA_aligned():
+	########################################################### ALIGNEMENT ############################################################
 
 	fig, ax = plt.subplots(1, 1, figsize=(5, 5))
 
@@ -377,8 +434,8 @@ if __name__ == "__main__":
 			data_pseudopop = make_pseudopop_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data)
 			labels = [key_to_pat_dict[st] for st in seq_types]
 		elif which_feature == 'frequency':
-			data_pseudopop = make_pseudopop_freqs(freq_types, mouse_id, sessions_by_id, data)
-			labels = freq_types
+			data_pseudopop = make_pseudopop_freqs(frequencies, mouse_id, sessions_by_id, data)
+			labels = frequencies
 		else:
 			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
 		data_pseudopop_mean = np.mean(data_pseudopop, axis=1)  # shape (_p, _N)
@@ -414,3 +471,47 @@ if __name__ == "__main__":
 	ax.legend(loc='lower left', frameon=False, fontsize=12)
 	fig.tight_layout()
 	fig.savefig(f'pca_components_aligned_{which_feature}.svg', bbox_inches='tight')
+
+	# PCA for single session
+
+
+	data_by_freq = make_data_freqs(frequencies, unique_mouse_ids, sessions_by_id, data)
+
+	for mouse_id, figname in zip(unique_mouse_ids, fignames):
+		fig, ax = plt.subplots(4, 5, figsize=(20, 10))
+		ax = ax.flatten()
+		for idx_sess, session in enumerate(sessions_by_id[mouse_id]):
+			key = f'{mouse_id}' + '_' + f'{session}'
+			data_session = data_by_freq[key]
+			
+			data_freq_mean = []
+			freq_sizes = []
+
+			for f, freq in enumerate(data_session.keys()):
+				data_freq = data_session[freq]
+				if f == 0:
+					data_freq_mean = np.mean(data_freq, axis=1)
+				else:
+					data_freq_mean = np.vstack((data_freq_mean, np.mean(data_freq, axis=1)))
+				freq_sizes.append(np.shape(data_freq)[0])
+			
+			freq_sizes = np.append(0, np.cumsum(freq_sizes))
+
+			pca = PCA(n_components = n_components)
+			_ = pca.fit_transform(data_freq_mean)
+			data_embedding = pca.transform(data_freq_mean)
+			if idx_sess < 20:
+				colors = ['Blue', 'Purple', 'Green', 'Red']
+				for j in range(len(freq_sizes)-1):
+					f_i = freq_sizes[j]
+					f_f = freq_sizes[j+1]
+					if idx_sess == 0:
+						ax[idx_sess].scatter(data_embedding[f_i:f_f, 0], data_embedding[f_i:f_f, 1], color=colors[j], alpha=0.5, label=frequencies[j])
+						ax[idx_sess].legend(loc = 'upper right', frameon=True, fontsize=12)
+					else:
+						ax[idx_sess].scatter(data_embedding[f_i:f_f, 0], data_embedding[f_i:f_f, 1], color=colors[j], alpha=0.5)
+				ax[idx_sess].set_title(f'Session {session}', fontsize=16)
+				ax[idx_sess].set_xlabel('PC1')
+				ax[idx_sess].set_ylabel('PC2')
+		fig.tight_layout()
+		fig.savefig(f'pca_freq_scatter_{figname}.svg', bbox_inches='tight')
