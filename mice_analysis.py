@@ -35,7 +35,7 @@ def rename_dict_keys(d, seq_types, mouse_ids, sessions_by_id, key_to_pat_dict):
 		
 	return d
 
-def make_pseudopop_seqtype(seq_types, mouse_ids, sessions_by_id, data):
+def make_data_seqtype(seq_types, mouse_ids, sessions_by_id, data):
 	# make a pseudopopulation of neural data by averaging across trials for each mouse and session
 	# and stacking them together: diff sessions diff neurons
 	# data is a dictionary with keys as 'mouse_id_session' and values as a dictionary with keys as sequence types
@@ -77,7 +77,7 @@ def make_pseudopop_seqtype(seq_types, mouse_ids, sessions_by_id, data):
 	return data_pseudopop
 
 
-def make_pseudopop_freqs(frequencies, mouse_ids, sessions_by_id, data, single_sess=False):
+def make_data_freqs(frequencies, mouse_ids, sessions_by_id, data, pseudopop=False):
 	freq_slices = {
 		'A0': {'ABCD0': [(25, 40)], 'ABBA0': [(25, 40), (100, 115)]},
 		'B0': {'ABCD0': [(50, 65)], 'ABBA0': [(50, 65), (75, 90)]},
@@ -134,21 +134,22 @@ def make_pseudopop_freqs(frequencies, mouse_ids, sessions_by_id, data, single_se
 
 				data_single_sess[np.isnan(data_single_sess)] = 0.0
 
-				if single_sess:
-					data_new[key][frequency] = data_single_sess.transpose(0, 2, 1)  # putting N at the last dimension
-				else:
+				if pseudopop:
 					data_single_sess_avg_across_trials = np.nanmean(data_single_sess, axis=0)
 					data_pseudopop_temp.append(data_single_sess_avg_across_trials)
-	if single_sess:
-		return data_new
-	else:
+				else:
+					data_new[key][frequency] = data_single_sess.transpose(0, 2, 1)  # putting N at the last dimension
+	if pseudopop:
 		data_pseudopop_stacked = np.vstack(data_pseudopop_temp)
 		assert data_pseudopop_stacked.shape[0] % len(frequencies) == 0
 
 		data_pseudopop = data_pseudopop_stacked.reshape(len(frequencies), data_pseudopop_stacked.shape[0] // len(frequencies), data_pseudopop_stacked.shape[1])
 		data_pseudopop = data_pseudopop.transpose(0,2,1) # putting N at the last dimension
-
 		return data_pseudopop
+	
+	else:
+		return data_new
+
 
 def plot_PCA(data_embedding, seq_types, frequencies, key_to_pat_dict, n_components, frac_variance, figname, which_feature='seqtype'):
 	fig, ax = plt.subplots(2,5, figsize=(20, 8))
@@ -331,9 +332,9 @@ if __name__ == "__main__":
 		print(mouse_id)
 
 		if which_feature == 'seqtype':
-			data_pseudopop = make_pseudopop_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data)
+			data_pseudopop = make_data_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data)
 		elif which_feature == 'frequency':
-			data_pseudopop = make_pseudopop_freqs(frequencies, mouse_id, sessions_by_id, data)
+			data_pseudopop = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True)
 		else:
 			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
 
@@ -421,7 +422,8 @@ if __name__ == "__main__":
 	########################################################## PCA for single session
 	###########################################################
 
-	data_by_freq = make_pseudopop_freqs(frequencies, unique_mouse_ids, sessions_by_id, data, single_sess=True)
+	data_by_freq = make_data_freqs(frequencies, unique_mouse_ids, sessions_by_id, data, pseudopop=False)
+	
 	for mouse_id, figname in zip(unique_mouse_ids, fignames):
 		fig, ax = plt.subplots(4, 5, figsize=(20, 10))
 		ax = ax.flatten()
