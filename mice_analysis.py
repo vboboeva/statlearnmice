@@ -378,10 +378,10 @@ if __name__ == "__main__":
 		print(mouse_id)
 
 		if which_feature == 'seqtype':
-			data_pseudopop = make_pseudopop_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data)
+			data_pseudopop = make_data_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data, pseudopop=False)
 			labels = [key_to_pat_dict[st] for st in seq_types]
 		elif which_feature == 'frequency':
-			data_pseudopop = make_pseudopop_freqs(frequencies, mouse_id, sessions_by_id, data)
+			data_pseudopop = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True)
 			labels = frequencies
 		else:
 			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
@@ -413,8 +413,8 @@ if __name__ == "__main__":
 				ax.scatter(aligned_embedding[i, 0], aligned_embedding[i, 1], s=4, color=colors[i])
 
 			ax.text(aligned_embedding[i, 0], aligned_embedding[i, 1], str(figname), fontsize=10, color=colors[i])
-		ax.set_xlabel('PC2')
-		ax.set_ylabel('PC3')
+		ax.set_xlabel('PC1')
+		ax.set_ylabel('PC2')
 	ax.legend(loc='lower left', frameon=False, fontsize=12)
 	fig.tight_layout()
 	fig.savefig(f'pca_components_aligned_{which_feature}.svg', bbox_inches='tight')
