@@ -378,7 +378,7 @@ if __name__ == "__main__":
 		print(mouse_id)
 
 		if which_feature == 'seqtype':
-			data_pseudopop = make_data_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data, pseudopop=False)
+			data_pseudopop = make_data_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data)
 			labels = [key_to_pat_dict[st] for st in seq_types]
 		elif which_feature == 'frequency':
 			data_pseudopop = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True)
