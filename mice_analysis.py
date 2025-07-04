@@ -151,7 +151,7 @@ def make_data_freqs(frequencies, mouse_ids, sessions_by_id, data, pseudopop=Fals
 		return data_new
 
 
-def plot_PCA(data_embedding, seq_types, frequencies, key_to_pat_dict, n_components, frac_variance, figname, which_feature='seqtype'):
+def plot_PCA(data_embedding, seq_types, frequencies, key_to_pat_dict, n_components, frac_variance, figname, N, which_feature='seqtype'):
 	fig, ax = plt.subplots(2,5, figsize=(20, 8))
 	ax = ax.flatten()
 	colors = ['Blue', 'Purple', 'Green', 'Red']
@@ -173,41 +173,42 @@ def plot_PCA(data_embedding, seq_types, frequencies, key_to_pat_dict, n_componen
 	ax[5].set_xlabel('Time (ms)')
 	ax[5].set_ylabel('Component Value')
 	ax[0].legend()
-	fig.suptitle(f'{_N} neurons across sessions')
-	fig.savefig(f'pca_components_{figname}_{which_feature}.svg', bbox_inches='tight')	
+	fig.suptitle(f'{N} neurons across sessions')
+	fig.savefig(f'figs/pca_components_{figname}_{which_feature}.svg', bbox_inches='tight')	
 
 
 def plot_3D_PCA_trajectory(data_embedding, figname, which_feature='seqtype'):
-    # data_embedding: shape (n_patterns, n_timepoints, n_components)
+# data_embedding: shape (n_patterns, n_timepoints, n_components)
 
-    colormaps = [cm.Blues, cm.Purples, cm.Greens, cm.Reds]
-    pc_triplets = [(0, 1, 2), (3, 4, 5), (6, 7, 8)]
-    n_triplets = len(pc_triplets)
+	colormaps = [cm.Blues, cm.Purples, cm.Greens, cm.Reds]
+	pc_triplets = [(0, 1, 2), (3, 4, 5), (6, 7, 8)]
+	n_triplets = len(pc_triplets)
 
-    fig = plt.figure(figsize=(8 * n_triplets, 6))
-    for idx, (pcx, pcy, pcz) in enumerate(pc_triplets):
-        ax = fig.add_subplot(1, n_triplets, idx + 1, projection='3d')
-        for patt_idx, Y in enumerate(data_embedding):
-            # Check if enough components exist
-            if Y.shape[1] <= max(pcx, pcy, pcz):
-                continue
-            x, y, z = Y[:, pcx], Y[:, pcy], Y[:, pcz]
-            points = np.array([x, y, z]).T
-            segments = np.array([[points[i], points[i+1]] for i in range(len(points) - 1)])
-            norm_time = np.linspace(0.2, 0.8, len(segments))
-            colors = colormaps[patt_idx % len(colormaps)](norm_time)
-            lc = Line3DCollection(segments, colors=colors, linewidth=2)
-            ax.add_collection3d(lc)
-        ax.set_xlabel(f'PC{pcx+1}')
-        ax.set_ylabel(f'PC{pcy+1}')
-        ax.set_zlabel(f'PC{pcz+1}')
-        ax.set_title(f'PC{pcx+1} vs PC{pcy+1} vs PC{pcz+1}')
-        # Autoscale
-        all_xyz = np.vstack([Y[:, [pcx, pcy, pcz]] for Y in data_embedding if Y.shape[1] > max(pcx, pcy, pcz)])
-        ax.auto_scale_xyz(all_xyz[:, 0], all_xyz[:, 1], all_xyz[:, 2])
+	fig = plt.figure(figsize=(8 * n_triplets, 6))
+	for idx, (pcx, pcy, pcz) in enumerate(pc_triplets):
+		print(idx, pcx, pcy, pcz)
+		ax = fig.add_subplot(1, n_triplets, idx + 1, projection='3d')
+		for patt_idx, Y in enumerate(data_embedding):
+			# Check if enough components exist
+			if Y.shape[1] <= max(pcx, pcy, pcz):
+				continue
+			x, y, z = Y[:, pcx], Y[:, pcy], Y[:, pcz]
+			points = np.array([x, y, z]).T
+			segments = np.array([[points[i], points[i+1]] for i in range(len(points) - 1)])
+			norm_time = np.linspace(0.2, 0.8, len(segments))
+			colors = colormaps[patt_idx % len(colormaps)](norm_time)
+			lc = Line3DCollection(segments, colors=colors, linewidth=2)
+			ax.add_collection3d(lc)
+		ax.set_xlabel(f'PC{pcx+1}')
+		ax.set_ylabel(f'PC{pcy+1}')
+		ax.set_zlabel(f'PC{pcz+1}')
+		ax.set_title(f'PC{pcx+1} vs PC{pcy+1} vs PC{pcz+1}')
+		# Autoscale
+		all_xyz = np.vstack([Y[:, [pcx, pcy, pcz]] for Y in data_embedding if Y.shape[1] > max(pcx, pcy, pcz)])
+		ax.auto_scale_xyz(all_xyz[:, 0], all_xyz[:, 1], all_xyz[:, 2])
 
-    fig.tight_layout()
-    fig.savefig(f"PCA_3D_triplets_{figname}_{which_feature}.svg", bbox_inches="tight", dpi=600)
+	fig.tight_layout()
+	fig.savefig(f"figs/PCA_3D_triplets_{figname}_{which_feature}.svg", bbox_inches="tight", dpi=600)
 
 
 def bandstop_filter(data, lowcut=4, highcut=12, fs=100, order=4):
@@ -284,16 +285,284 @@ def plot_bandpass(raw_signals, figname, freq_types, n_components, which_feature=
 		ax_inset.plot(np.arange(len(signal)), np.mean(filtered_signal[i], axis=1), label='Raw Signal', color='black')
 
 	fig.tight_layout()
-	fig.savefig(f"filter_{figname}_{which_feature}.svg", bbox_inches="tight", dpi=600)
+	fig.savefig(f"figs/filter_{figname}_{which_feature}.svg", bbox_inches="tight", dpi=600)
 	
 	return filtered_signal
+
+
+def run_PCA_across_time(
+    mouse_ids,
+    fignames,
+    which_feature,
+    seq_types,
+    frequencies,
+    key_to_pat_dict,
+    sessions_by_id,
+    data,
+    n_components=3
+):
+    """
+    Run PCA across time for a set of mice and plot the results.
+
+    Args:
+        mouse_ids (list of str): List of mouse IDs.
+        fignames (list of str): Corresponding figure names for saving.
+        which_feature (str): Feature type, either 'seqtype' or 'frequency'.
+        seq_types (list): List of sequence types (for 'seqtype' feature).
+        frequencies (list): List of frequencies (for 'frequency' feature).
+        key_to_pat_dict (dict): Dictionary mapping sequence types to patterns.
+        sessions_by_id (dict): Mapping from mouse ID to session data.
+        data (dict): Neural data.
+        n_components (int): Number of PCA components to retain.
+    """
+
+    for mouse_id, figname in zip(mouse_ids, fignames):
+        print(f"Processing mouse: {mouse_id}")
+
+        if which_feature == 'seqtype':
+            data_pseudopop = make_data_seqtype(
+                [key_to_pat_dict[st] for st in seq_types],
+                mouse_id,
+                sessions_by_id,
+                data
+            )
+        elif which_feature == 'frequency':
+            data_pseudopop = make_data_freqs(
+                frequencies,
+                mouse_id,
+                sessions_by_id,
+                data,
+                pseudopop=True
+            )
+        else:
+            raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
+
+        _p, _t, _N = data_pseudopop.shape
+        print(f'number of seqtypes = {_p}')
+        print(f'number of timepoints = {_t}')
+        print(f'number of neurons = {_N}')
+
+        flattened_data = data_pseudopop.reshape(-1, _N)
+        print("Flattened data shape:", flattened_data.shape)
+
+        pca = PCA(n_components=n_components)
+        _ = pca.fit_transform(flattened_data)
+        data_embedding = pca.transform(flattened_data)
+
+        proj_variance = np.cumsum(np.var(data_embedding, axis=0))
+        total_variance = np.sum(np.var(flattened_data, axis=0))
+        frac_variance = proj_variance / total_variance
+
+        print("proj_variance shape =", proj_variance.shape)
+        print("total_variance =", total_variance)
+        print("frac_variance =", frac_variance)
+
+        data_embedding = data_embedding.reshape(_p, _t, n_components)
+        signal = data_embedding  # or use data_pseudopop depending on analysis choice
+
+        filtered_signals = plot_bandpass(signal, figname, frequencies, n_components=n_components, which_feature=which_feature)
+
+        plot_PCA(data_embedding, seq_types, frequencies, key_to_pat_dict, n_components, frac_variance, figname, _N, which_feature=which_feature)
+
+        plot_3D_PCA_trajectory(data_embedding, figname, which_feature=which_feature)
+
+
+def plot_aligned_PCA_components(
+	mouse_ids,
+	fignames,
+	which_feature,
+	seq_types,
+	frequencies,
+	key_to_pat_dict,
+	sessions_by_id,
+	data,
+	output_filename=None
+):
+	"""
+	Perform PCA on average activity across time, align embeddings across mice,
+	and plot the first four principal components in 2D projections.
+
+	Args:
+		mouse_ids (list of str): List of mouse IDs.
+		fignames (list of str): Figure name per mouse ID.
+		which_feature (str): Either 'seqtype' or 'frequency'.
+		seq_types (list): List of sequence types (if using 'seqtype').
+		frequencies (list): List of frequencies (if using 'frequency').
+		key_to_pat_dict (dict): Map from sequence types to patterns.
+		sessions_by_id (dict): Dictionary mapping mouse IDs to sessions.
+		data (dict): Neural data.
+		output_filename (str or None): Filename for saving plot (no extension). If None, defaults to `pca_components_aligned_{which_feature}.svg`.
+	"""
+	
+	fig, ax = plt.subplots(2, 3, figsize=(12, 6))
+	# ax = ax.flatten()
+	reference_embedding = None
+
+	for idx, (mouse_id, figname) in enumerate(zip(mouse_ids, fignames)):
+		print(f"Processing mouse: {mouse_id}")
+
+		if which_feature == 'seqtype':
+			data_pseudopop = make_data_seqtype(
+				[key_to_pat_dict[st] for st in seq_types],
+				mouse_id,
+				sessions_by_id,
+				data
+			)
+			labels = [key_to_pat_dict[st] for st in seq_types]
+		elif which_feature == 'frequency':
+			data_pseudopop = make_data_freqs(
+				frequencies,
+				mouse_id,
+				sessions_by_id,
+				data,
+				pseudopop=True
+			)
+			labels = frequencies
+		else:
+			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
+
+		# Average over time (axis=1): shape (_p, _N)
+		data_pseudopop_mean = np.mean(data_pseudopop, axis=1)
+		print("Mean data shape:", data_pseudopop_mean.shape)
+
+		pca = PCA(n_components=4)
+		_ = pca.fit_transform(data_pseudopop_mean)
+		data_embedding = pca.transform(data_pseudopop_mean)
+
+		# Align embeddings
+		if idx == 0:
+			reference_embedding = data_embedding
+			aligned_embedding = data_embedding
+		else:
+			R, _ = orthogonal_procrustes(data_embedding, reference_embedding)
+			aligned_embedding = data_embedding @ R
+
+		colors = ['Blue', 'Purple', 'Green', 'Red', 'Orange', 'Pink', 'Brown', 'Gray']
+		for i in range(len(aligned_embedding)):
+			for dim in range(3):
+				ax[0,dim].scatter(
+					data_embedding[i, dim], data_embedding[i, dim+1],
+					s=4,
+					color=colors[i],
+					label=labels[i] if figname == 'all_mice' else None
+				)
+				ax[1,dim].scatter(
+					aligned_embedding[i, dim], aligned_embedding[i, dim+1],
+					s=4,
+					color=colors[i],
+					label=labels[i] if figname == 'all_mice' else None
+				)
+
+				ax[0,dim].text(
+					data_embedding[i, dim], data_embedding[i, dim+1],
+					str(figname),
+					fontsize=10,
+					color=colors[i]
+				)
+
+				ax[1,dim].text(
+					aligned_embedding[i, dim], aligned_embedding[i, dim+1],
+					str(figname),
+					fontsize=10,
+					color=colors[i]
+				)
+
+	ax[0,0].set_xlabel('PC1'); ax[0,0].set_ylabel('PC2')
+	ax[0,1].set_xlabel('PC2'); ax[0,1].set_ylabel('PC3')
+	ax[0,2].set_xlabel('PC3'); ax[0,2].set_ylabel('PC4')
+
+	ax[1,2].legend(loc='center left', bbox_to_anchor=(1, 0.5))  # right side, vertically centered	
+	fig.tight_layout()
+
+	output_filename = f'figs/pca_components_aligned_{which_feature}.svg'
+
+	fig.savefig(output_filename, bbox_inches='tight')
+
+
+def plot_PCA_by_session(
+    unique_mouse_ids,
+    fignames,
+    frequencies,
+    sessions_by_id,
+    data,
+    n_components=2,
+    output_prefix='pca_freq_scatter'):
+    """
+    Perform PCA on mean frequency responses for each session of each mouse,
+    and plot the first two components in a grid layout.
+
+    Args:
+        unique_mouse_ids (list of str): List of unique mouse IDs.
+        fignames (list of str): List of figure names for saving.
+        frequencies (list): List of stimulus frequencies.
+        sessions_by_id (dict): Dictionary mapping each mouse ID to its sessions.
+        data (dict): Neural data.
+        n_components (int): Number of PCA components (default=2 for 2D plots).
+        output_prefix (str): Prefix for output filenames (default='pca_freq_scatter').
+    """
+
+    data_by_freq = make_data_freqs(
+        frequencies,
+        unique_mouse_ids,
+        sessions_by_id,
+        data,
+        pseudopop=False
+    )
+
+    for mouse_id, figname in zip(unique_mouse_ids, fignames):
+        fig, ax = plt.subplots(4, 5, figsize=(20, 10))  # up to 20 sessions
+        ax = ax.flatten()
+
+        for idx_sess, session in enumerate(sessions_by_id[mouse_id]):
+            key = f'{mouse_id}_{session}'
+            data_session = data_by_freq[key]
+
+            data_freq_mean = []
+            freq_sizes = []
+
+            for freq_idx, freq in enumerate(data_session.keys()):
+                data_freq = data_session[freq]  # shape: (trials, time, neurons)
+                freq_mean = np.mean(data_freq, axis=1)  # mean over time
+                data_freq_mean.append(freq_mean)
+                freq_sizes.append(freq_mean.shape[0])
+
+            # Stack all frequencies and compute PCA
+            data_freq_mean = np.vstack(data_freq_mean)  # shape: (total_trials, neurons)
+            freq_sizes = np.append(0, np.cumsum(freq_sizes))
+
+            pca = PCA(n_components=n_components)
+            _ = pca.fit_transform(data_freq_mean)
+            data_embedding = pca.transform(data_freq_mean)
+
+            if idx_sess < 20:  # plotting only up to 20 sessions
+                colors = ['Blue', 'Purple', 'Green', 'Red', 'Orange', 'Pink', 'Brown', 'Gray']
+                for j in range(len(freq_sizes) - 1):
+                    f_i = freq_sizes[j]
+                    f_f = freq_sizes[j + 1]
+                    ax[idx_sess].scatter(
+                        data_embedding[f_i:f_f, 0],
+                        data_embedding[f_i:f_f, 1],
+                        color=colors[j],
+                        alpha=0.5,
+                        label=frequencies[j] if idx_sess == 0 else None
+                    )
+
+                ax[idx_sess].set_title(f'Session {session}', fontsize=16)
+                ax[idx_sess].set_xlabel('PC1')
+                ax[idx_sess].set_ylabel('PC2')
+
+                if idx_sess == 0:
+                    ax[idx_sess].legend(loc='upper right', frameon=True, fontsize=12)
+
+        fig.tight_layout()
+        fig.savefig(f'figs/{output_prefix}_{figname}.svg', bbox_inches='tight')
 
 
 if __name__ == "__main__":
 
 	filename = join('full_patt_dict_ABCD_vs_ABBA.pkl')
 
-	which_feature = 'frequency'  # options: 'seqtype', 'frequency
+	which_feature = 'seqtype'  # options: 'seqtype', 'frequency
 		
 	with open(filename, 'rb') as handle:
 		data = pickle.load(handle)
@@ -326,139 +595,38 @@ if __name__ == "__main__":
 	mouse_ids = [[mouse_id] for mouse_id in unique_mouse_ids] + [unique_mouse_ids]
 	fignames = np.append(unique_mouse_ids, 'all_mice')
 
-	########################################################### PCA ACROSS TIME ############################################################
+	print('RUNNING PCA ACROSS TIME')
+	run_PCA_across_time(
+		mouse_ids=mouse_ids,
+		fignames=fignames,
+		which_feature=which_feature,  
+		seq_types=seq_types,
+		frequencies=frequencies,
+		key_to_pat_dict=key_to_pat_dict,
+		sessions_by_id=sessions_by_id,
+		data=data,
+		n_components=n_components)  
 
-	for mouse_id, figname in zip(mouse_ids, fignames):
-		print(mouse_id)
+	print('RUNNING PLOT ALIGNED PCA COMPS')
+	plot_aligned_PCA_components(
+		mouse_ids=mouse_ids,
+		fignames=fignames,
+		which_feature=which_feature,  
+		seq_types=seq_types,
+		frequencies=frequencies,
+		key_to_pat_dict=key_to_pat_dict,
+		sessions_by_id=sessions_by_id,
+		data=data,
+		output_filename='aligned_pca_plot.svg')
 
-		if which_feature == 'seqtype':
-			data_pseudopop = make_data_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data)
-		elif which_feature == 'frequency':
-			data_pseudopop = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True)
-		else:
-			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
+	print('RUNNING PLOT PCA BY SESSION')
+	plot_PCA_by_session(
+		unique_mouse_ids=unique_mouse_ids,
+		fignames=fignames,
+		frequencies=frequencies,
+		sessions_by_id=sessions_by_id,
+		data=data,
+		n_components=2,  
+		output_prefix='pca_freq_scatter')
 
-		_p, _t, _N = data_pseudopop.shape
 
-		print('number of seqtypes=',_p)
-		print('number of timepts=',_t)
-		print('number of neurons',_N)
-
-		print(data_pseudopop.reshape(-1, _N).shape)
-		pca = PCA(n_components = n_components)
-		# find principal components for a particular position in sequence 
-		_ = pca.fit_transform(data_pseudopop.reshape(-1, _N))
-		# project all sequences along them
-		data_embedding = pca.transform(data_pseudopop.reshape(-1, _N))
-		# print('data_embedding', data_embedding)
-		# print('shape data_pseudopop', np.shape(data_pseudopop))
-
-		proj_variance = np.cumsum(np.var(data_embedding, axis=0))
-		total_variance = np.sum(np.var(data_pseudopop.reshape(-1, _N), axis=0))
-		frac_variance = proj_variance / total_variance*np.ones(len(proj_variance))
-
-		print("proj_variance =", np.shape(proj_variance))
-		print("total_variance =", np.shape(total_variance))
-		print("frac_variance =", frac_variance)
-
-		data_embedding = data_embedding.reshape(_p, _t, n_components)
-
-		signal = data_embedding  # choose btw data_embedding and data_pseudopop and set n_components accordingly
-		filtered_signals = plot_bandpass(signal, figname, frequencies, n_components = n_components, which_feature=which_feature)		
-
-		plot_PCA(data_embedding, seq_types, frequencies, key_to_pat_dict, n_components, frac_variance, figname, which_feature=which_feature)
-		plot_3D_PCA_trajectory(data_embedding, figname, which_feature=which_feature)
-
-	########################################################### ALIGNEMENT ############################################################
-
-	fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-
-	reference_embedding = None
-	for idx, (mouse_id, figname) in enumerate(zip(mouse_ids, fignames)):
-		print(mouse_id)
-
-		if which_feature == 'seqtype':
-			data_pseudopop = make_data_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data)
-			labels = [key_to_pat_dict[st] for st in seq_types]
-		elif which_feature == 'frequency':
-			data_pseudopop = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True)
-			labels = frequencies
-		else:
-			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
-		data_pseudopop_mean = np.mean(data_pseudopop, axis=1)  # shape (_p, _N)
-
-		_p, _N = data_pseudopop_mean.shape
-		print(data_pseudopop_mean.shape)
-
-		pca = PCA(n_components=8)
-		_ = pca.fit_transform(data_pseudopop_mean)
-		data_embedding = pca.transform(data_pseudopop_mean)
-
-		# Align to reference
-		if idx == 0:
-			reference_embedding = data_embedding
-			aligned_embedding = data_embedding
-		else:
-			# Solve for best rotation
-			R, _ = orthogonal_procrustes(data_embedding, reference_embedding)
-			aligned_embedding = data_embedding @ R
-
-		print(np.shape(aligned_embedding))
-
-		colors = ['Blue', 'Purple', 'Green', 'Red', 'Orange', 'Pink', 'Brown', 'Gray']
-		for i in range(len(aligned_embedding)):
-			if figname == 'all_mice':
-				ax.scatter(aligned_embedding[i, 0], aligned_embedding[i, 1], s=4, color=colors[i], label=labels[i])
-			else:
-				ax.scatter(aligned_embedding[i, 0], aligned_embedding[i, 1], s=4, color=colors[i])
-
-			ax.text(aligned_embedding[i, 0], aligned_embedding[i, 1], str(figname), fontsize=10, color=colors[i])
-		ax.set_xlabel('PC1')
-		ax.set_ylabel('PC2')
-	ax.legend(loc='lower left', frameon=False, fontsize=12)
-	fig.tight_layout()
-	fig.savefig(f'pca_components_aligned_{which_feature}.svg', bbox_inches='tight')
-
-	########################################################## PCA for single session
-	###########################################################
-
-	data_by_freq = make_data_freqs(frequencies, unique_mouse_ids, sessions_by_id, data, pseudopop=False)
-	
-	for mouse_id, figname in zip(unique_mouse_ids, fignames):
-		fig, ax = plt.subplots(4, 5, figsize=(20, 10))
-		ax = ax.flatten()
-		for idx_sess, session in enumerate(sessions_by_id[mouse_id]):
-			key = f'{mouse_id}' + '_' + f'{session}'
-			data_session = data_by_freq[key]
-			
-			data_freq_mean = []
-			freq_sizes = []
-
-			for f, freq in enumerate(data_session.keys()):
-				data_freq = data_session[freq]
-				if f == 0:
-					data_freq_mean = np.mean(data_freq, axis=1)
-				else:
-					data_freq_mean = np.vstack((data_freq_mean, np.mean(data_freq, axis=1)))
-				freq_sizes.append(np.shape(data_freq)[0])
-			
-			freq_sizes = np.append(0, np.cumsum(freq_sizes))
-
-			pca = PCA(n_components = n_components)
-			_ = pca.fit_transform(data_freq_mean)
-			data_embedding = pca.transform(data_freq_mean)
-			if idx_sess < 20:
-				colors = ['Blue', 'Purple', 'Green', 'Red', 'Orange', 'Pink', 'Brown', 'Gray']
-				for j in range(len(freq_sizes)-1):
-					f_i = freq_sizes[j]
-					f_f = freq_sizes[j+1]
-					if idx_sess == 0:
-						ax[idx_sess].scatter(data_embedding[f_i:f_f, 0], data_embedding[f_i:f_f, 1], color=colors[j], alpha=0.5, label=frequencies[j])
-						ax[idx_sess].legend(loc = 'upper right', frameon=True, fontsize=12)
-					else:
-						ax[idx_sess].scatter(data_embedding[f_i:f_f, 0], data_embedding[f_i:f_f, 1], color=colors[j], alpha=0.5)
-				ax[idx_sess].set_title(f'Session {session}', fontsize=16)
-				ax[idx_sess].set_xlabel('PC1')
-				ax[idx_sess].set_ylabel('PC2')
-		fig.tight_layout()
-		fig.savefig(f'pca_freq_scatter_{figname}.svg', bbox_inches='tight')
