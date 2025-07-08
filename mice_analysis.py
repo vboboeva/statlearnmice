@@ -280,8 +280,9 @@ def bandstop_filter(data, lowcut=4, highcut=12, fs=100, order=4):
     return filtfilt(b, a, data)
 
 
-def plot_bandpass(raw_signals, figname, freq_types, n_components, which_feature='seqtype'):
-	fig, ax = plt.subplots(3, 8, figsize=(20, 10))
+def plot_bandpass(raw_signals, figname, freq_types, seq_types, n_components, which_feature='seqtype'):
+	x = len(seq_types) if which_feature == 'seqtype' else len(freq_types)
+	fig, ax = plt.subplots(3, x, figsize=(3*x, 10))
 
 	colors = ['Blue', 'Purple', 'Green', 'Red']
 	filtered_signal = np.zeros_like(raw_signals)
@@ -304,34 +305,34 @@ def plot_bandpass(raw_signals, figname, freq_types, n_components, which_feature=
 			# Function to apply bandpass filter and plot the results
 			# raw_signal: your ephys trace
 
-			ax[0,i].plot(np.arange(len(signal)), signal, label='Raw Signal', color='gray', alpha=0.1)
+			ax[0,i].plot(np.arange(len(signal)), signal, label='Raw Signal', color='gray', alpha=0.2)
 
 			# Plot filtered signal
 			if which_feature == 'seqtype':
 				filtered = bandstop_filter(signal, fs=fs)
 				filtered_signal[i, :, j] = filtered
-				ax[1,i].plot(np.arange(len(signal)), filtered, label='Filtered Signal (Theta Band)', ls='--', color='gray', alpha=0.1)
+				ax[1,i].plot(np.arange(len(signal)), filtered, label='Filtered Signal (Theta Band)', ls='--', color='gray', alpha=0.2)
 
 			# PSD (Power Spectral Density)
 			frequencies, power = welch(signal, nperseg=64, fs=fs)
 			ax[2,i].semilogy(frequencies, power, color='gray', alpha=0.1)
 
 		if which_feature == 'seqtype':
-			ax[0,i].set_title(f'Seq Type: {key_to_pat_dict[seq_types[i]]}', fontsize=16)
-			ax[1,i].set_title(f'Seq Type: {key_to_pat_dict[seq_types[i]]}', fontsize=16)
+			ax[0,i].set_title(f'Seq Type: {seq_types[i]}', fontsize=16)
+			ax[1,i].set_title(f'Seq Type: {seq_types[i]}', fontsize=16)
 		else:
 			ax[0,i].set_title(f'Freq Type: {freq_types[i]}', fontsize=16)
 			ax[1,i].set_title(f'Freq Type: {freq_types[i]}', fontsize=16)
 
 		ax[0,i].set_xlabel('Time (s)')
 		ax[0,i].set_ylabel('Amplitude')
-		ax[0,i].set_xticks(np.arange(0, len(signal), 15))
-		ax[0,i].set_xticklabels(np.arange(0, len(signal)*10, 15*10))
+		ax[0,i].set_xticks(np.arange(0, len(signal), 30))
+		ax[0,i].set_xticklabels(np.arange(0, len(signal)*10, 30*10))
 		
 		ax[1,i].set_xlabel('Time (s)')
 		ax[1,i].set_ylabel('Amplitude')
-		ax[1,i].set_xticks(np.arange(0, len(signal), 15))
-		ax[1,i].set_xticklabels(np.arange(0, len(signal)*10, 15*10))
+		ax[1,i].set_xticks(np.arange(0, len(signal), 30))
+		ax[1,i].set_xticklabels(np.arange(0, len(signal)*10, 30*10))
 
 		ax[2,i].set_xlabel('Frequency (Hz)')
 		ax[2,i].set_ylabel('Power')
@@ -340,15 +341,47 @@ def plot_bandpass(raw_signals, figname, freq_types, n_components, which_feature=
 		ax[0,i].plot(np.arange(len(signal)), np.mean(raw_signal, axis=1), label='Raw Signal', color='black')
 		ax_inset = inset_axes(ax[0,i], width="40%", height="30%", loc=1)  # loc=1 is upper right
 		ax_inset.plot(np.arange(len(signal)), np.mean(raw_signal, axis=1), label='Raw Signal', color='black')
+		ax_inset.set_xticks(np.arange(0, len(signal), 30))
+		ax_inset.set_xticklabels(np.arange(0, len(signal)*10, 30*10))
+
 		
 		ax[1,i].plot(np.arange(len(signal)), np.mean(filtered_signal[i], axis=1), label='Filtered Signal', color='black')
 		ax_inset = inset_axes(ax[1,i], width="40%", height="30%", loc=1)  # loc=1 is upper right
 		ax_inset.plot(np.arange(len(signal)), np.mean(filtered_signal[i], axis=1), label='Raw Signal', color='black')
+		ax_inset.set_xticks(np.arange(0, len(signal), 30))
+		ax_inset.set_xticklabels(np.arange(0, len(signal)*10, 30*10))
 
 	fig.tight_layout()
 	fig.savefig(f"figs/filter_{figname}_{which_feature}.svg", bbox_inches="tight", dpi=600)
 	
 	return filtered_signal
+
+
+def plot_firing_rate(mouse_ids, fignames, frequencies, n_components, which_feature, key_to_pat_dict, sessions_by_id, data):
+	
+	for mouse_id, figname in zip(mouse_ids, fignames):
+		print(f"Processing mouse: {mouse_id}")
+
+		if which_feature == 'seqtype':
+			data_pseudopop = make_data_seqtype(
+				[key_to_pat_dict[st] for st in seq_types],
+				mouse_id,
+				sessions_by_id,
+				data
+			)
+		elif which_feature == 'frequency':
+			data_pseudopop = make_data_freqs(
+				frequencies,
+				mouse_id,
+				sessions_by_id,
+				data,
+				pseudopop=True
+			)
+		else:
+			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
+	
+		plot_bandpass(data_pseudopop, figname, frequencies, [key_to_pat_dict[st] for st in seq_types], n_components=n_components, which_feature=which_feature)
+		
 
 
 def run_PCA_across_time(
@@ -419,9 +452,6 @@ def run_PCA_across_time(
         print("frac_variance =", frac_variance)
 
         data_embedding = data_embedding.reshape(_p, _t, n_components)
-        signal = data_embedding  # or use data_pseudopop depending on analysis choice
-
-        filtered_signals = plot_bandpass(signal, figname, frequencies, n_components=n_components, which_feature=which_feature)
 
         plot_PCA(data_embedding, seq_types, frequencies, key_to_pat_dict, n_components, frac_variance, figname, _N, which_feature=which_feature)
 
@@ -621,7 +651,7 @@ if __name__ == "__main__":
 
 	filename = join('full_patt_dict_ABCD_vs_ABBA.pkl')
 
-	which_feature = 'frequency'  # options: 'seqtype', 'frequency
+	which_feature = 'seqtype'  # options: 'seqtype', 'frequency
 		
 	with open(filename, 'rb') as handle:
 		data = pickle.load(handle)
@@ -688,4 +718,8 @@ if __name__ == "__main__":
 		n_components=2,  
 		output_prefix='pca_freq_scatter')
 
+	print('PLOTTING FIRING RATES BY FREQUENCY OR SEQTYPE')
+	plot_firing_rate(mouse_ids, fignames, frequencies, n_components, which_feature, key_to_pat_dict, sessions_by_id, data)
 
+
+	filename = join('aligned_pupil_epochs.pkl')
