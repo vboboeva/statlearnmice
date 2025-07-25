@@ -13,6 +13,7 @@ from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from matplotlib import cm
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from scipy.linalg import orthogonal_procrustes
+from decodanda import Decodanda
 
 def replace_key_recursive(d, old_key, new_key):
 			if isinstance(d, dict):
@@ -457,117 +458,6 @@ def run_PCA_across_time(
 
         plot_3D_PCA_trajectory(data_embedding, figname, which_feature=which_feature)
 
-
-def plot_aligned_PCA_components(
-	mouse_ids,
-	fignames,
-	which_feature,
-	seq_types,
-	frequencies,
-	key_to_pat_dict,
-	sessions_by_id,
-	data,
-	output_filename=None,
-	num_components=4
-):
-	"""
-	Perform PCA on average activity across time, align embeddings across mice,
-	and plot the first few principal components in 2D projections.
-
-	Args:
-		mouse_ids (list of str): List of mouse IDs.
-		fignames (list of str): Figure name per mouse ID.
-		which_feature (str): Either 'seqtype' or 'frequency'.
-		seq_types (list): List of sequence types (if using 'seqtype').
-		frequencies (list): List of frequencies (if using 'frequency').
-		key_to_pat_dict (dict): Map from sequence types to patterns.
-		sessions_by_id (dict): Dictionary mapping mouse IDs to sessions.
-		data (dict): Neural data.
-		output_filename (str or None): Filename for saving plot (no extension). If None, defaults to `pca_components_aligned_{which_feature}.svg`.
-		num_components (int): Number of PCA components to compute and plot.
-	"""
-
-	import matplotlib.pyplot as plt
-	dim_pairs = [(i, i + 1) for i in range(num_components - 1)]
-	fig, ax = plt.subplots(4, len(dim_pairs), figsize=(4 * len(dim_pairs), 12))
-	if len(dim_pairs) == 1:
-		ax = np.array([[ax[0]], [ax[1]], [ax[2]]])
-
-	reference_embedding = None
-	frac_variance = None
-
-	for idx, (mouse_id, figname) in enumerate(zip(mouse_ids, fignames)):
-		print(f"Processing mouse: {mouse_id}")
-
-		if which_feature == 'seqtype':
-			data_pseudopop = make_data_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data, shuffle_seqtypes=False)
-			data_pseudopop_shuffle = make_data_seqtype([key_to_pat_dict[st] for st in seq_types], mouse_id, sessions_by_id, data, shuffle_seqtypes=True)
-			labels = [key_to_pat_dict[st] for st in seq_types]
-		elif which_feature == 'frequency':
-			data_pseudopop = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True, shuffle_freqs=False)
-			data_pseudopop_shuffle = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True, shuffle_freqs=True)
-			labels = frequencies
-		else:
-			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
-
-		data_pseudopop_mean = np.mean(data_pseudopop, axis=1)
-		data_pseudopop_mean_shuffle = np.mean(data_pseudopop_shuffle, axis=1)
-		print("Mean data shape:", data_pseudopop_mean.shape)
-
-		pca = PCA(n_components=num_components)
-		_ = pca.fit_transform(data_pseudopop_mean)
-		data_embedding = pca.transform(data_pseudopop_mean)
-		frac_variance = pca.explained_variance_ratio_
-
-		pca = PCA(n_components=num_components)
-		_ = pca.fit_transform(data_pseudopop_mean_shuffle)
-		data_embedding_shuffle = pca.transform(data_pseudopop_mean_shuffle)
-		frac_variance_shuffle = pca.explained_variance_ratio_
-
-		if idx == 0:
-			reference_embedding = data_embedding
-			aligned_embedding = data_embedding
-			reference_embedding_shuffle = data_embedding_shuffle
-			aligned_embedding_shuffle = data_embedding_shuffle
-		else:
-			R, _ = orthogonal_procrustes(data_embedding, reference_embedding)
-			aligned_embedding = data_embedding @ R
-
-			R_shuffle, _ = orthogonal_procrustes(data_embedding_shuffle, reference_embedding_shuffle)
-			aligned_embedding_shuffle = data_embedding_shuffle @ R_shuffle
-
-		colors = ['Blue', 'Purple', 'Green', 'Red', 'Orange', 'Pink', 'Brown', 'Gray']
-		for i in range(len(aligned_embedding)):
-			for plot_idx, (dim_x, dim_y) in enumerate(dim_pairs):
-				for row, (embedding, frac_var, title) in enumerate(zip([data_embedding, aligned_embedding, data_embedding_shuffle, aligned_embedding_shuffle], [frac_variance, frac_variance, frac_variance_shuffle, frac_variance_shuffle], ['Original', 'Aligned', 'Shuffled Original', 'Shuffled Aligned'])):
-
-					ax[row, plot_idx].scatter(
-						embedding[i, dim_x], embedding[i, dim_y],
-						s=4,
-						color=colors[i],
-						label=labels[i] if figname == 'all' else None
-					)
-					ax[row, plot_idx].text(
-						embedding[i, dim_x], embedding[i, dim_y],
-						str(figname),
-						fontsize=10,
-						color=colors[i]
-					)
-					ax[row, plot_idx].set_xlabel(f'PC{dim_x + 1} ({frac_var[dim_x]*100:.1f}%)')
-					ax[row, plot_idx].set_ylabel(f'PC{dim_y + 1} ({frac_var[dim_y]*100:.1f}%)')
-					ax[row, plot_idx].set_title(f'{title}', fontsize=14)
-
-
-	ax[1, -1].legend(loc='center left', bbox_to_anchor=(1, 0.5))
-	fig.tight_layout()
-
-	if output_filename is None:
-		output_filename = f'figs/pca_components_aligned_{which_feature}.svg'
-
-	fig.savefig(output_filename, bbox_inches='tight')
-
-
-
 def plot_PCA_by_session(
     unique_mouse_ids,
     fignames,
@@ -647,18 +537,214 @@ def plot_PCA_by_session(
         fig.savefig(f'figs/{output_prefix}_{figname}.svg', bbox_inches='tight')
 
 
+
+def plot_aligned_PCA_components(
+	mouse_ids,
+	fignames,
+	which_feature,
+	seq_types,
+	frequencies,
+	key_to_pat_dict,
+	sessions_by_id,
+	data,
+	output_filename=None,
+	num_components=4):
+
+	dim_pairs = [(i, i + 1) for i in range(num_components - 1)]
+	fig, ax = plt.subplots(4, len(dim_pairs), figsize=(4 * len(dim_pairs), 12))
+	if len(dim_pairs) == 1:
+		ax = np.array([[ax[0]], [ax[1]], [ax[2]]])
+
+	reference_embedding = None
+	reference_embedding_shuffle = None
+
+	for idx, (mouse_id, figname) in enumerate(zip(mouse_ids, fignames)):
+		print(f"Processing mouse: {mouse_id}")
+
+		if which_feature == 'seqtype':
+			patterns = [key_to_pat_dict[st] for st in seq_types]
+			data_pseudopop = make_data_seqtype(patterns, mouse_id, sessions_by_id, data, shuffle_seqtypes=False)
+			data_pseudopop_shuffle = make_data_seqtype(patterns, mouse_id, sessions_by_id, data, shuffle_seqtypes=True)
+			labels = patterns
+		elif which_feature == 'frequency':
+			data_pseudopop = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True, shuffle_freqs=False)
+			data_pseudopop_shuffle = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True, shuffle_freqs=True)
+			labels = frequencies
+		else:
+			raise ValueError("Invalid feature type. Choose 'seqtype' or 'frequency'.")
+
+		data_pseudopop_mean = np.mean(data_pseudopop, axis=1)
+		data_pseudopop_mean_shuffle = np.mean(data_pseudopop_shuffle, axis=1)
+		print("Mean data shape:", data_pseudopop_mean.shape)
+
+		# PCA on unshuffled
+		pca = PCA(n_components=num_components)
+		data_embedding = pca.fit_transform(data_pseudopop_mean)
+		frac_variance = pca.explained_variance_ratio_
+
+		# PCA on shuffled
+		pca = PCA(n_components=num_components)
+		data_embedding_shuffle = pca.fit_transform(data_pseudopop_mean_shuffle)
+		frac_variance_shuffle = pca.explained_variance_ratio_
+
+		# Alignment
+		if idx == 0:
+			reference_embedding = data_embedding
+			aligned_embedding = data_embedding
+			reference_embedding_shuffle = data_embedding_shuffle
+			aligned_embedding_shuffle = data_embedding_shuffle
+		else:
+			R, _ = orthogonal_procrustes(reference_embedding, data_embedding)
+			aligned_embedding = data_embedding @ R
+
+			R_shuffle, _ = orthogonal_procrustes(reference_embedding_shuffle, data_embedding_shuffle)
+			aligned_embedding_shuffle = data_embedding_shuffle @ R_shuffle
+
+		# Plotting
+		colors = ['Blue', 'Purple', 'Green', 'Red', 'Orange', 'Pink', 'Brown', 'Gray']
+		for i in range(len(aligned_embedding)):
+			for plot_idx, (dim_x, dim_y) in enumerate(dim_pairs):
+				for row, (embedding, frac_var, title) in enumerate(zip(
+					[data_embedding, aligned_embedding, data_embedding_shuffle, aligned_embedding_shuffle],
+					[frac_variance, frac_variance, frac_variance_shuffle, frac_variance_shuffle],
+					['Original', 'Aligned', 'Shuffled Original', 'Shuffled Aligned'])):
+
+					ax[row, plot_idx].scatter(
+						embedding[i, dim_x], embedding[i, dim_y],
+						s=4,
+						color=colors[i % len(colors)],
+						label=labels[i] if figname == 'all' else None
+					)
+					ax[row, plot_idx].text(
+						embedding[i, dim_x], embedding[i, dim_y],
+						str(figname),
+						fontsize=10,
+						color=colors[i % len(colors)]
+					)
+					ax[row, plot_idx].set_xlabel(f'PC{dim_x + 1} ({frac_var[dim_x]*100:.1f}%)')
+					ax[row, plot_idx].set_ylabel(f'PC{dim_y + 1} ({frac_var[dim_y]*100:.1f}%)')
+					ax[row, plot_idx].set_title(f'{title}', fontsize=14)
+
+	# Finalize plot
+	ax[1, -1].legend(loc='center left', bbox_to_anchor=(1, 0.5))
+	fig.tight_layout()
+
+	if output_filename is None:
+		output_filename = f'figs/pca_components_aligned_{which_feature}.svg'
+
+	fig.savefig(output_filename, bbox_inches='tight')
+
+def between_within_variance_ratio(embedding, labels):
+    labels = np.array(labels)
+    classes = np.unique(labels)
+    overall_mean = np.mean(embedding, axis=0)
+
+    # Between-class variance
+    between = 0
+    for c in classes:
+        class_mean = np.mean(embedding[labels == c], axis=0)
+        n_c = np.sum(labels == c)
+        between += n_c * np.sum((class_mean - overall_mean) ** 2)
+
+    # Within-class variance
+    within = 0
+    for c in classes:
+        within += np.sum((embedding[labels == c] - np.mean(embedding[labels == c], axis=0)) ** 2)
+
+    return between / (within + 1e-9)  # Avoid div by 0
+
+def mean_centroid_distance(embedding, labels):
+    from scipy.spatial.distance import pdist
+    labels = np.array(labels)
+    classes = np.unique(labels)
+    centroids = [np.mean(embedding[labels == c], axis=0) for c in classes]
+    return np.mean(pdist(centroids))
+
+def silhouette_score_metric(embedding, labels):
+    from sklearn.metrics import silhouette_score
+    return silhouette_score(embedding, labels)
+
+
+def evaluate_significance_after_PCA(
+	mouse_ids,
+	which_feature,
+	seq_types,
+	frequencies,
+	key_to_pat_dict,
+	sessions_by_id,
+	data,
+	make_data_fn,
+	num_components=10,
+	num_shuffles=100,
+	metric_fn=None,
+	seed=0):
+
+	if metric_fn is None:
+		metric_fn = lambda emb, labels: emb[:, 0].var()  # default: PC1 variance
+
+	rng = np.random.default_rng(seed)
+
+	def run_pipeline(shuffle=False):
+		reduced_all = []
+		all_labels = []
+
+		for mouse_id in mouse_ids:
+			if which_feature == 'seqtype':
+				labels = [key_to_pat_dict[st] for st in seq_types]
+				data_pseudo = make_data_fn(labels, mouse_id, sessions_by_id, data, shuffle_seqtypes=shuffle)
+			elif which_feature == 'frequency':
+				labels = frequencies
+				data_pseudo = make_data_fn(frequencies, mouse_id, sessions_by_id, data, pseudopop=True, shuffle_freqs=shuffle)
+			else:
+				raise ValueError("which_feature must be 'seqtype' or 'frequency'")
+
+			mean_activity = np.mean(data_pseudo, axis=1)
+			pca = PCA(n_components=num_components)
+			reduced = pca.fit_transform(mean_activity)
+
+			reduced_all.append(reduced)
+			all_labels.extend(labels)  # replicate across mice
+
+		# Align
+		reference = reduced_all[0]
+		aligned_all = [reference]
+
+		for r in reduced_all[1:]:
+			R, _ = orthogonal_procrustes(r, reference)
+			aligned_all.append(r @ R)
+
+		embedding_all = np.vstack(aligned_all)
+		return metric_fn(embedding_all, all_labels)
+
+	metric_real = run_pipeline(shuffle=False)
+	metric_shuffled = [run_pipeline(shuffle=True) for _ in range(num_shuffles)]
+
+	fig = plt.figure(figsize=(6, 4))
+	plt.hist(metric_shuffled, bins=30, alpha=0.7, label='Shuffled')
+	plt.axvline(metric_real, color='red', linestyle='--', label='Real')
+	plt.xlabel(f"{metric_fn}")
+	plt.ylabel("Count")
+	plt.title(f"Real vs. Shuffled ({which_feature})")
+	plt.legend()
+	plt.tight_layout()
+	fig.savefig(f"figs/{which_feature}_{metric_fn}.svg", bbox_inches='tight')
+
+
+	return metric_real, metric_shuffled
+
+
 if __name__ == "__main__":
 
 	filename = join('full_patt_dict_ABCD_vs_ABBA.pkl')
 
-	which_feature = 'seqtype'  # options: 'seqtype', 'frequency
+	which_feature = 'frequency'  # options: 'seqtype', 'frequency
 		
 	with open(filename, 'rb') as handle:
 		data = pickle.load(handle)
 
-	seq_types=['A-0', 'A-1', 'A-2', 'A-3']
+	seq_types =['A-0', 'A-1', 'A-2', 'A-3']
 
-	key_to_pat_dict= {'A-0': 'ABCD0', 'A-1': 'ABBA0', 'A-2': 'ABCD1', 'A-3':'ABBA1'}
+	key_to_pat_dict = {'A-0': 'ABCD0', 'A-1': 'ABBA0', 'A-2': 'ABCD1', 'A-3':'ABBA1'}
 	
 	frequencies = ['A0', 'B0', 'C0', 'D0', 'A1', 'B1', 'C1', 'D1']  # frequency types for ABCD at lower pitch
 
@@ -684,42 +770,115 @@ if __name__ == "__main__":
 	mouse_ids = [[mouse_id] for mouse_id in unique_mouse_ids] + [unique_mouse_ids]
 	fignames = np.append(unique_mouse_ids, 'all')
 
-	print('RUNNING PCA ACROSS TIME')
-	run_PCA_across_time(
-		mouse_ids=mouse_ids,
-		fignames=fignames,
-		which_feature=which_feature,  
-		seq_types=seq_types,
-		frequencies=frequencies,
-		key_to_pat_dict=key_to_pat_dict,
-		sessions_by_id=sessions_by_id,
-		data=data,
-		n_components=n_components)  
+	# print('RUNNING PCA ACROSS TIME')
+	# run_PCA_across_time(
+	# 	mouse_ids=mouse_ids,
+	# 	fignames=fignames,
+	# 	which_feature=which_feature,  
+	# 	seq_types=seq_types,
+	# 	frequencies=frequencies,
+	# 	key_to_pat_dict=key_to_pat_dict,
+	# 	sessions_by_id=sessions_by_id,
+	# 	data=data,
+	# 	n_components=n_components)  
 
-	print('RUNNING PLOT ALIGNED PCA COMPS')
-	plot_aligned_PCA_components(
-		mouse_ids=mouse_ids,
-		fignames=fignames,
-		which_feature=which_feature,  
-		seq_types=seq_types,
-		frequencies=frequencies,
-		key_to_pat_dict=key_to_pat_dict,
-		sessions_by_id=sessions_by_id,
-		data=data,
-		num_components=4)
+	# print('RUNNING PLOT ALIGNED PCA COMPS')
+	# plot_aligned_PCA_components(
+	# 	mouse_ids=mouse_ids,
+	# 	fignames=fignames,
+	# 	which_feature=which_feature,  
+	# 	seq_types=seq_types,
+	# 	frequencies=frequencies,
+	# 	key_to_pat_dict=key_to_pat_dict,
+	# 	sessions_by_id=sessions_by_id,
+	# 	data=data,
+	# 	num_components=4)
 			
-	print('RUNNING PLOT PCA BY SESSION')
-	plot_PCA_by_session(
-		unique_mouse_ids=unique_mouse_ids,
-		fignames=fignames,
-		frequencies=frequencies,
-		sessions_by_id=sessions_by_id,
-		data=data,
-		n_components=2,  
-		output_prefix='pca_freq_scatter')
+	# print('RUNNING PLOT PCA BY SESSION')
+	# plot_PCA_by_session(
+	# 	unique_mouse_ids=unique_mouse_ids,
+	# 	fignames=fignames,
+	# 	frequencies=frequencies,
+	# 	sessions_by_id=sessions_by_id,
+	# 	data=data,
+	# 	n_components=2,  
+	# 	output_prefix='pca_freq_scatter')
 
-	print('PLOTTING FIRING RATES BY FREQUENCY OR SEQTYPE')
-	plot_firing_rate(mouse_ids, fignames, frequencies, n_components, which_feature, key_to_pat_dict, sessions_by_id, data)
+	# print('PLOTTING FIRING RATES BY FREQUENCY OR SEQTYPE')
+	# plot_firing_rate(mouse_ids, fignames, frequencies, n_components, which_feature, key_to_pat_dict, sessions_by_id, data)
 
 
-	filename = join('aligned_pupil_epochs.pkl')
+	# filename = join('aligned_pupil_epochs.pkl')
+
+	# for metric_fn in [between_within_variance_ratio, mean_centroid_distance, silhouette_score_metric]:
+	# 	print(f'EVALUATING SIGNIFICANCE AFTER PCA with metric: {metric_fn.__name__}')
+	# 	# Evaluate significance after PCA
+	# 	# This will return the real metric and a list of shuffled metrics
+	# 	# The shuffles are done by shuffling the sequence types or frequencies
+	# 	# depending on which_feature
+	# 	# The metric_fn is a function that takes the embedding and labels and returns a single
+	# 	# value that quantifies the separation of the sequence types or frequencies
+	# 	metric_real, metric_shuffled = evaluate_significance_after_PCA(
+	# 		mouse_ids,
+	# 		which_feature='seqtype',
+	# 		seq_types=seq_types,
+	# 		frequencies=frequencies,
+	# 		key_to_pat_dict=key_to_pat_dict,
+	# 		sessions_by_id=sessions_by_id,
+	# 		data=data,
+	# 		make_data_fn=make_data_seqtype,
+	# 		metric_fn=metric_fn,
+	# 		num_components=4,
+	# 		num_shuffles=300)
+
+
+
+	data_by_seq = defaultdict(list)
+	print(mouse_ids)
+	exit()
+	for mouse_id in mouse_ids:
+		for session in sessions_by_id[mouse_id[0]]:
+			key = f'{mouse_id[0]}_{session}'
+			print(key)
+			if key not in data:
+				continue
+
+			# Get available sequence types for this session
+			available_seqtypes = [key_to_pat_dict[st] for st in seq_types] 
+			print(available_seqtypes)
+			D = []
+			stimulus = []
+			trial = []
+
+			for seqtype in available_seqtypes[:2]:
+				print(seqtype)
+
+				data_single_sess = data[key][seqtype]  # (trials, neurons, timepoints)
+				data_single_sess = data_single_sess.transpose(0, 2, 1)  # (trials, timepoints, neurons)
+				num_trials = np.shape(data_single_sess)[0]
+				num_timepoints = np.shape(data_single_sess)[1]
+				data_single_sess = data_single_sess.reshape(-1, np.shape(data_single_sess)[-1])  # (trials, timepoints, neurons)
+				D = np.append(D, data_single_sess, axis=0) if len(D) > 0 else data_single_sess
+
+
+				trial = np.append(trial, [np.repeat(t, num_timepoints) for t in range(num_trials) ]	)
+
+				stimulus = np.append(stimulus, np.repeat(seqtype, np.shape(data_single_sess)[0]))
+
+			data_dict = {
+				'raster': D,
+				'stimulus': stimulus,
+				'trial': trial
+			}
+
+			conditions = {'stimulus': available_seqtypes[:2]}
+
+			dec = Decodanda(data=data_dict, conditions=conditions)
+
+			performances, null = dec.decode(
+                        training_fraction=0.5,  # fraction of trials used for training
+                        cross_validations=10,   # number of cross validation folds
+                        nshuffles=20,           # number of null model iterations
+						plot=True)
+			
+			
