@@ -808,77 +808,76 @@ if __name__ == "__main__":
 	# plot_firing_rate(mouse_ids, fignames, frequencies, n_components, which_feature, key_to_pat_dict, sessions_by_id, data)
 
 
+	for metric_fn in [between_within_variance_ratio, mean_centroid_distance, silhouette_score_metric]:
+		print(f'EVALUATING SIGNIFICANCE AFTER PCA with metric: {metric_fn.__name__}')
+		# Evaluate significance after PCA
+		# This will return the real metric and a list of shuffled metrics
+		# The shuffles are done by shuffling the sequence types or frequencies
+		# depending on which_feature
+		# The metric_fn is a function that takes the embedding and labels and returns a single
+		# value that quantifies the separation of the sequence types or frequencies
+		metric_real, metric_shuffled = evaluate_significance_after_PCA(
+			mouse_ids,
+			which_feature='frequency',
+			seq_types=seq_types,
+			frequencies=frequencies,
+			key_to_pat_dict=key_to_pat_dict,
+			sessions_by_id=sessions_by_id,
+			data=data,
+			make_data_fn=make_data_seqtype,
+			metric_fn=metric_fn,
+			num_components=4,
+			num_shuffles=300)
+
 	# filename = join('aligned_pupil_epochs.pkl')
 
-	# for metric_fn in [between_within_variance_ratio, mean_centroid_distance, silhouette_score_metric]:
-	# 	print(f'EVALUATING SIGNIFICANCE AFTER PCA with metric: {metric_fn.__name__}')
-	# 	# Evaluate significance after PCA
-	# 	# This will return the real metric and a list of shuffled metrics
-	# 	# The shuffles are done by shuffling the sequence types or frequencies
-	# 	# depending on which_feature
-	# 	# The metric_fn is a function that takes the embedding and labels and returns a single
-	# 	# value that quantifies the separation of the sequence types or frequencies
-	# 	metric_real, metric_shuffled = evaluate_significance_after_PCA(
-	# 		mouse_ids,
-	# 		which_feature='seqtype',
-	# 		seq_types=seq_types,
-	# 		frequencies=frequencies,
-	# 		key_to_pat_dict=key_to_pat_dict,
-	# 		sessions_by_id=sessions_by_id,
-	# 		data=data,
-	# 		make_data_fn=make_data_seqtype,
-	# 		metric_fn=metric_fn,
-	# 		num_components=4,
-	# 		num_shuffles=300)
+
+	# data_by_seq = defaultdict(list)
+	# print(mouse_ids)
+	# exit()
+	# for mouse_id in mouse_ids:
+	# 	for session in sessions_by_id[mouse_id[0]]:
+	# 		key = f'{mouse_id[0]}_{session}'
+	# 		print(key)
+	# 		if key not in data:
+	# 			continue
+
+	# 		# Get available sequence types for this session
+	# 		available_seqtypes = [key_to_pat_dict[st] for st in seq_types] 
+	# 		print(available_seqtypes)
+	# 		D = []
+	# 		stimulus = []
+	# 		trial = []
+
+	# 		for seqtype in available_seqtypes[:2]:
+	# 			print(seqtype)
+
+	# 			data_single_sess = data[key][seqtype]  # (trials, neurons, timepoints)
+	# 			data_single_sess = data_single_sess.transpose(0, 2, 1)  # (trials, timepoints, neurons)
+	# 			num_trials = np.shape(data_single_sess)[0]
+	# 			num_timepoints = np.shape(data_single_sess)[1]
+	# 			data_single_sess = data_single_sess.reshape(-1, np.shape(data_single_sess)[-1])  # (trials, timepoints, neurons)
+	# 			D = np.append(D, data_single_sess, axis=0) if len(D) > 0 else data_single_sess
 
 
+	# 			trial = np.append(trial, [np.repeat(t, num_timepoints) for t in range(num_trials) ]	)
 
-	data_by_seq = defaultdict(list)
-	print(mouse_ids)
-	exit()
-	for mouse_id in mouse_ids:
-		for session in sessions_by_id[mouse_id[0]]:
-			key = f'{mouse_id[0]}_{session}'
-			print(key)
-			if key not in data:
-				continue
+	# 			stimulus = np.append(stimulus, np.repeat(seqtype, np.shape(data_single_sess)[0]))
 
-			# Get available sequence types for this session
-			available_seqtypes = [key_to_pat_dict[st] for st in seq_types] 
-			print(available_seqtypes)
-			D = []
-			stimulus = []
-			trial = []
+	# 		data_dict = {
+	# 			'raster': D,
+	# 			'stimulus': stimulus,
+	# 			'trial': trial
+	# 		}
 
-			for seqtype in available_seqtypes[:2]:
-				print(seqtype)
+	# 		conditions = {'stimulus': available_seqtypes[:2]}
 
-				data_single_sess = data[key][seqtype]  # (trials, neurons, timepoints)
-				data_single_sess = data_single_sess.transpose(0, 2, 1)  # (trials, timepoints, neurons)
-				num_trials = np.shape(data_single_sess)[0]
-				num_timepoints = np.shape(data_single_sess)[1]
-				data_single_sess = data_single_sess.reshape(-1, np.shape(data_single_sess)[-1])  # (trials, timepoints, neurons)
-				D = np.append(D, data_single_sess, axis=0) if len(D) > 0 else data_single_sess
+	# 		dec = Decodanda(data=data_dict, conditions=conditions)
 
-
-				trial = np.append(trial, [np.repeat(t, num_timepoints) for t in range(num_trials) ]	)
-
-				stimulus = np.append(stimulus, np.repeat(seqtype, np.shape(data_single_sess)[0]))
-
-			data_dict = {
-				'raster': D,
-				'stimulus': stimulus,
-				'trial': trial
-			}
-
-			conditions = {'stimulus': available_seqtypes[:2]}
-
-			dec = Decodanda(data=data_dict, conditions=conditions)
-
-			performances, null = dec.decode(
-                        training_fraction=0.5,  # fraction of trials used for training
-                        cross_validations=10,   # number of cross validation folds
-                        nshuffles=20,           # number of null model iterations
-						plot=True)
+	# 		performances, null = dec.decode(
+    #                     training_fraction=0.5,  # fraction of trials used for training
+    #                     cross_validations=10,   # number of cross validation folds
+    #                     nshuffles=20,           # number of null model iterations
+	# 					plot=True)
 			
 			
