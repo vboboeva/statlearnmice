@@ -36,92 +36,101 @@ def rename_dict_keys(d, seq_types, mouse_ids, sessions_by_id, key_to_pat_dict):
 		
 	return d
 
+
 def make_data_seqtype(
-	seq_types,
-	mouse_ids,
-	sessions_by_id,
-	data,
-	which_zscore='across_time',
-	shuffle_seqtypes=False
+    seq_types,
+    mouse_ids,
+    sessions_by_id,
+    data,
+    which_zscore='across_time',
+    shuffle_seqtypes=False,
+    pseudopop=True
 ):
-	"""
-	Create pseudopopulation data by averaging neural activity across trials
-	for each sequence type, mouse, and session, then stacking across neurons
-	(assuming timepoints are consistent across sessions but not neurons).
+    """
+    Create pseudopopulation or session-wise z-scored neural data for sequence types.
 
-	Args:
-		seq_types (list): List of sequence types (e.g. ['A-0', 'A-1']).
-		mouse_ids (list): Mouse IDs to include.
-		sessions_by_id (dict): Dict mapping mouse_id -> list of sessions.
-		data (dict): data[mouse_session][seq_type] = ndarray (trials, neurons, timepoints).
-		which_zscore (str): 'across_time', 'across_trials', or 'across_trials_and_time'.
-		shuffle_seqtypes (bool): If True, shuffle sequence identities within each session.
+    Args:
+        seq_types (list): List of sequence types (e.g. ['A-0', 'A-1']).
+        mouse_ids (list): Mouse IDs to include.
+        sessions_by_id (dict): Dict mapping mouse_id -> list of sessions.
+        data (dict): data[mouse_session][seq_type] = ndarray (trials, neurons, timepoints).
+        which_zscore (str): 'across_time', 'across_trials', or 'across_trials_and_time'.
+        shuffle_seqtypes (bool): If True, shuffle sequence identities within each session.
+        pseudopop (bool): If True, returns pseudopopulation averaged across trials. Otherwise returns full trial-wise data.
 
-	Returns:
-		data_pseudopop: ndarray of shape (num_seqtypes, timepoints, total_neurons)
-	"""
+    Returns:
+        If pseudopop=True:
+            ndarray of shape (num_seqtypes, timepoints, total_neurons)
+        If pseudopop=False:
+            dict of form data_new[mouse_session][seq_type] = array of shape (trials, timepoints, neurons)
+    """
+    assert which_zscore in ['across_time', 'across_trials', 'across_trials_and_time'], \
+        f"Invalid z-score method: {which_zscore}"
 
-	assert which_zscore in ['across_time', 'across_trials', 'across_trials_and_time'], \
-		f"Invalid z-score method: {which_zscore}"
+    data_by_seq = defaultdict(list)
+    data_new = {}
 
-	data_by_seq = defaultdict(list)
+    for mouse_id in mouse_ids:
+        for session in sessions_by_id[mouse_id]:
+            key = f'{mouse_id}_{session}'
 
-	for mouse_id in mouse_ids:
-		for session in sessions_by_id[mouse_id]:
-			key = f'{mouse_id}_{session}'
+            if key not in data:
+                continue
 
-			if key not in data:
-				continue
+            data_new[key] = {}
 
-			# Get available sequence types for this session
-			available_seqtypes = [st for st in seq_types if st in data[key]]
-			if shuffle_seqtypes:
-				shuffled_seqtypes = np.random.permutation(available_seqtypes)
-				mapping = dict(zip(available_seqtypes, shuffled_seqtypes))
-			else:
-				mapping = {st: st for st in available_seqtypes}
+            available_seqtypes = [st for st in seq_types if st in data[key]]
+            if shuffle_seqtypes:
+                shuffled_seqtypes = np.random.permutation(available_seqtypes)
+                mapping = dict(zip(available_seqtypes, shuffled_seqtypes))
+            else:
+                mapping = {st: st for st in available_seqtypes}
 
-			for orig_seqtype in available_seqtypes:
-				new_seqtype = mapping[orig_seqtype]
+            for orig_seqtype in available_seqtypes:
+                new_seqtype = mapping[orig_seqtype]
+                data_single_sess = data[key][orig_seqtype]  # (trials, neurons, timepoints)
 
-				data_single_sess = data[key][orig_seqtype]  # (trials, neurons, timepoints)
+                # Z-score
+                if which_zscore == 'across_trials_and_time':
+                    temp = data_single_sess.transpose(0, 2, 1).reshape(-1, data_single_sess.shape[1])
+                    temp = zscore(temp, axis=0)
+                    data_single_sess = temp.reshape(
+                        data_single_sess.shape[0], data_single_sess.shape[2], data_single_sess.shape[1]
+                    ).transpose(0, 2, 1)
+                elif which_zscore == 'across_trials':
+                    data_single_sess = zscore(data_single_sess, axis=0)
+                elif which_zscore == 'across_time':
+                    data_single_sess = zscore(data_single_sess, axis=2)
 
-				# Z-score
-				if which_zscore == 'across_trials_and_time':
-					temp = data_single_sess.transpose(0, 2, 1).reshape(-1, data_single_sess.shape[1])
-					temp = zscore(temp, axis=0)
-					data_single_sess = temp.reshape(
-						data_single_sess.shape[0], data_single_sess.shape[2], data_single_sess.shape[1]
-					).transpose(0, 2, 1)
-				elif which_zscore == 'across_trials':
-					data_single_sess = zscore(data_single_sess, axis=0)
-				elif which_zscore == 'across_time':
-					data_single_sess = zscore(data_single_sess, axis=2)
+                data_single_sess[np.isnan(data_single_sess)] = 0.0
 
-				data_single_sess[np.isnan(data_single_sess)] = 0.0
+                if pseudopop:
+                    avg = np.nanmean(data_single_sess, axis=0)  # (neurons, timepoints)
+                    data_by_seq[new_seqtype].append(avg)
+                else:
+                    # Format like (trials, timepoints, neurons) for consistency with downstream use
+                    data_new[key][new_seqtype] = data_single_sess.transpose(0, 2, 1)
 
-				avg = np.nanmean(data_single_sess, axis=0)  # (neurons, timepoints)
-				data_by_seq[new_seqtype].append(avg)
+    if pseudopop:
+        # Stack pseudopopulation
+        data_pseudopop = []
+        for seq_type in seq_types:
+            arrays = data_by_seq[seq_type]
+            if not arrays:
+                raise ValueError(f"No data for sequence type '{seq_type}'")
 
-	# Stack pseudopopulation
-	data_pseudopop = []
-	for seq_type in seq_types:
-		arrays = data_by_seq[seq_type]
-		if not arrays:
-			raise ValueError(f"No data for sequence type '{seq_type}'")
+            time_lengths = [arr.shape[1] for arr in arrays]
+            if len(set(time_lengths)) != 1:
+                raise ValueError(f"Inconsistent number of timepoints for '{seq_type}': {time_lengths}")
 
-		# Confirm timepoints match
-		time_lengths = [arr.shape[1] for arr in arrays]
-		if len(set(time_lengths)) != 1:
-			raise ValueError(f"Inconsistent number of timepoints for '{seq_type}': {time_lengths}")
+            stacked = np.concatenate(arrays, axis=0)  # (neurons, timepoints)
+            stacked = stacked.T  # (timepoints, total_neurons)
+            data_pseudopop.append(stacked)
 
-		stacked = np.concatenate(arrays, axis=0)  # (neurons, timepoints)
-		stacked = stacked.T  # (timepoints, total_neurons)
-		data_pseudopop.append(stacked)
-
-	data_pseudopop = np.stack(data_pseudopop, axis=0)  # (seq_types, timepoints, total_neurons)
-	return data_pseudopop
-
+        data_pseudopop = np.stack(data_pseudopop, axis=0)  # (seq_types, timepoints, total_neurons)
+        return data_pseudopop
+    else:
+        return data_new
 
 def make_data_freqs(frequencies, mouse_ids, sessions_by_id, data, pseudopop=False, shuffle_freqs=False):
 
@@ -368,8 +377,10 @@ def plot_firing_rate(mouse_ids, fignames, frequencies, n_components, which_featu
 				[key_to_pat_dict[st] for st in seq_types],
 				mouse_id,
 				sessions_by_id,
-				data
+				data,
+				pseudopop=True
 			)
+
 		elif which_feature == 'frequency':
 			data_pseudopop = make_data_freqs(
 				frequencies,
@@ -383,7 +394,6 @@ def plot_firing_rate(mouse_ids, fignames, frequencies, n_components, which_featu
 	
 		plot_bandpass(data_pseudopop, figname, frequencies, [key_to_pat_dict[st] for st in seq_types], n_components=n_components, which_feature=which_feature)
 		
-
 
 def run_PCA_across_time(
     mouse_ids,
@@ -419,7 +429,8 @@ def run_PCA_across_time(
                 [key_to_pat_dict[st] for st in seq_types],
                 mouse_id,
                 sessions_by_id,
-                data
+                data,
+                pseudopop=True
             )
         elif which_feature == 'frequency':
             data_pseudopop = make_data_freqs(
@@ -536,8 +547,6 @@ def plot_PCA_by_session(
         fig.tight_layout()
         fig.savefig(f'figs/{output_prefix}_{figname}.svg', bbox_inches='tight')
 
-
-
 def plot_aligned_PCA_components(
 	mouse_ids,
 	fignames,
@@ -555,16 +564,16 @@ def plot_aligned_PCA_components(
 	if len(dim_pairs) == 1:
 		ax = np.array([[ax[0]], [ax[1]], [ax[2]]])
 
-	reference_embedding = None
-	reference_embedding_shuffle = None
+	# reference_embedding = None
+	# reference_embedding_shuffle = None
 
 	for idx, (mouse_id, figname) in enumerate(zip(mouse_ids, fignames)):
 		print(f"Processing mouse: {mouse_id}")
 
 		if which_feature == 'seqtype':
 			patterns = [key_to_pat_dict[st] for st in seq_types]
-			data_pseudopop = make_data_seqtype(patterns, mouse_id, sessions_by_id, data, shuffle_seqtypes=False)
-			data_pseudopop_shuffle = make_data_seqtype(patterns, mouse_id, sessions_by_id, data, shuffle_seqtypes=True)
+			data_pseudopop = make_data_seqtype(patterns, mouse_id, sessions_by_id, data, pseudopop=True, shuffle_seqtypes=False)
+			data_pseudopop_shuffle = make_data_seqtype(patterns, mouse_id, sessions_by_id, data, pseudopop=True, shuffle_seqtypes=True)
 			labels = patterns
 		elif which_feature == 'frequency':
 			data_pseudopop = make_data_freqs(frequencies, mouse_id, sessions_by_id, data, pseudopop=True, shuffle_freqs=False)
@@ -594,10 +603,10 @@ def plot_aligned_PCA_components(
 			reference_embedding_shuffle = data_embedding_shuffle
 			aligned_embedding_shuffle = data_embedding_shuffle
 		else:
-			R, _ = orthogonal_procrustes(reference_embedding, data_embedding)
+			R, x = orthogonal_procrustes(data_embedding, reference_embedding)
 			aligned_embedding = data_embedding @ R
 
-			R_shuffle, _ = orthogonal_procrustes(reference_embedding_shuffle, data_embedding_shuffle)
+			R_shuffle, y = orthogonal_procrustes(data_embedding_shuffle, reference_embedding_shuffle)
 			aligned_embedding_shuffle = data_embedding_shuffle @ R_shuffle
 
 		# Plotting
@@ -633,6 +642,8 @@ def plot_aligned_PCA_components(
 		output_filename = f'figs/pca_components_aligned_{which_feature}.svg'
 
 	fig.savefig(output_filename, bbox_inches='tight')
+
+	
 
 def between_within_variance_ratio(embedding, labels):
     labels = np.array(labels)
@@ -737,7 +748,7 @@ if __name__ == "__main__":
 
 	filename = join('full_patt_dict_ABCD_vs_ABBA.pkl')
 
-	which_feature = 'frequency'  # options: 'seqtype', 'frequency
+	which_feature = 'seqtype'  # options: 'seqtype', 'frequency
 		
 	with open(filename, 'rb') as handle:
 		data = pickle.load(handle)
@@ -767,7 +778,7 @@ if __name__ == "__main__":
 	n_components = 10
 
 	unique_mouse_ids = sorted(set(mouse_ids))
-	mouse_ids = [[mouse_id] for mouse_id in unique_mouse_ids] + [unique_mouse_ids]
+	mouse_ids = [[mouse_id] for mouse_id in unique_mouse_ids] #+ [unique_mouse_ids]
 	fignames = np.append(unique_mouse_ids, 'all')
 
 	# print('RUNNING PCA ACROSS TIME')
@@ -782,17 +793,6 @@ if __name__ == "__main__":
 	# 	data=data,
 	# 	n_components=n_components)  
 
-	# print('RUNNING PLOT ALIGNED PCA COMPS')
-	# plot_aligned_PCA_components(
-	# 	mouse_ids=mouse_ids,
-	# 	fignames=fignames,
-	# 	which_feature=which_feature,  
-	# 	seq_types=seq_types,
-	# 	frequencies=frequencies,
-	# 	key_to_pat_dict=key_to_pat_dict,
-	# 	sessions_by_id=sessions_by_id,
-	# 	data=data,
-	# 	num_components=4)
 			
 	# print('RUNNING PLOT PCA BY SESSION')
 	# plot_PCA_by_session(
@@ -807,8 +807,20 @@ if __name__ == "__main__":
 	# print('PLOTTING FIRING RATES BY FREQUENCY OR SEQTYPE')
 	# plot_firing_rate(mouse_ids, fignames, frequencies, n_components, which_feature, key_to_pat_dict, sessions_by_id, data)
 
+	print('RUNNING PLOT ALIGNED PCA COMPS')
+	plot_aligned_PCA_components(
+		mouse_ids=mouse_ids,
+		fignames=fignames,
+		which_feature=which_feature,  
+		seq_types=seq_types,
+		frequencies=frequencies,
+		key_to_pat_dict=key_to_pat_dict,
+		sessions_by_id=sessions_by_id,
+		data=data,
+		num_components=4)
 
-	for metric_fn in [between_within_variance_ratio, mean_centroid_distance, silhouette_score_metric]:
+	exit()
+	for metric_fn in [silhouette_score_metric, between_within_variance_ratio, mean_centroid_distance]:
 		print(f'EVALUATING SIGNIFICANCE AFTER PCA with metric: {metric_fn.__name__}')
 		# Evaluate significance after PCA
 		# This will return the real metric and a list of shuffled metrics
@@ -824,13 +836,12 @@ if __name__ == "__main__":
 			key_to_pat_dict=key_to_pat_dict,
 			sessions_by_id=sessions_by_id,
 			data=data,
-			make_data_fn=make_data_seqtype,
+			make_data_fn=make_data_freqs,
 			metric_fn=metric_fn,
 			num_components=4,
 			num_shuffles=300)
 
 	# filename = join('aligned_pupil_epochs.pkl')
-
 
 	# data_by_seq = defaultdict(list)
 	# print(mouse_ids)
